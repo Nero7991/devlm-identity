@@ -1,0 +1,550 @@
+openapi: 3.0.0
+info:
+  title: DevLM Identity Service API
+  version: 1.0.0
+  description: API for user authentication and management in the DevLM project
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+paths:
+  /api/v1/users/register:
+    post:
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRegistration'
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserCreatedResponse'
+        '400':
+          description: Invalid input
+        '409':
+          description: Username or email already exists
+        '500':
+          description: Internal server error
+      x-logging:
+        - request_body
+        - response_body
+        - user_id
+        - role
+        - created_at
+        - creator_id
+
+  /api/v1/users/login:
+    post:
+      summary: Authenticate user and receive access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserLogin'
+      responses:
+        '200':
+          description: Successful authentication
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Invalid input
+        '401':
+          description: Invalid credentials
+        '500':
+          description: Internal server error
+      x-logging:
+        - request_body
+        - response_body
+        - user_id
+        - role
+        - login_time
+
+  /api/v1/users/forgot-password:
+    post:
+      summary: Request password reset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '200':
+          description: Password reset request processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid input
+        '500':
+          description: Internal server error
+      x-logging:
+        - request_body
+        - response_body
+        - user_email
+        - reset_token
+
+  /api/v1/users/reset-password:
+    post:
+      summary: Reset user password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Password reset successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid input or expired reset token
+        '500':
+          description: Internal server error
+      x-logging:
+        - request_body
+        - response_body
+        - user_id
+        - reset_token
+
+  /auth/logout:
+    post:
+      summary: Log out user
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Logged out successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          description: Unauthorized
+      x-logging:
+        - user_id
+        - logout_time
+
+  /api/v1/users/refresh-token:
+    post:
+      summary: Refresh access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: New access token generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshTokenResponse'
+        '400':
+          description: Invalid input
+        '401':
+          description: Invalid refresh token
+        '500':
+          description: Internal server error
+      x-logging:
+        - request_body
+        - response_body
+        - user_id
+
+  /api/v1/users/change-password:
+    post:
+      summary: Change user password
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: Password changed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized or invalid old password
+        '500':
+          description: Internal server error
+      x-logging:
+        - user_id
+        - password_change_time
+
+  /auth/assign-role:
+    post:
+      summary: Assign role to user (Admin only)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignRoleRequest'
+      responses:
+        '200':
+          description: Role assigned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - User is not an admin
+        '404':
+          description: User not found
+        '500':
+          description: Internal server error
+      x-logging:
+        - request_body
+        - response_body
+        - admin_user_id
+        - target_user_id
+        - old_role
+        - new_role
+
+  /api/users/{id}/role:
+    get:
+      summary: Get user role
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User role retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRoleResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: User not found
+        '500':
+          description: Internal server error
+      x-logging:
+        - user_id
+        - role
+
+  /auth/ssh-keys:
+    get:
+      summary: List SSH keys for authenticated user
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of SSH keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SSHKey'
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal server error
+      x-logging:
+        - user_id
+        - ssh_key_count
+    post:
+      summary: Add new SSH key for authenticated user
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddSSHKeyRequest'
+      responses:
+        '201':
+          description: SSH key added successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal server error
+      x-logging:
+        - user_id
+        - ssh_key_name
+        - ssh_key_fingerprint
+
+  /auth/ssh-keys/{id}:
+    delete:
+      summary: Delete SSH key for authenticated user
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: SSH key deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: SSH key not found
+        '500':
+          description: Internal server error
+      x-logging:
+        - user_id
+        - ssh_key_id
+
+  /api/v1/users/profile:
+    get:
+      summary: Get user profile
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: User profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal server error
+      x-logging:
+        - user_id
+        - profile_access_time
+
+components:
+  schemas:
+    UserRegistration:
+      type: object
+      required:
+        - username
+        - email
+        - password
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+        role:
+          type: string
+          enum: [user, admin, developer, editor, viewer, reviewer]
+
+    UserCreatedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [user, admin, developer, editor, viewer, reviewer]
+        created_at:
+          type: string
+          format: date-time
+        creator_id:
+          type: string
+          format: uuid
+
+    UserLogin:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        refresh_token:
+          type: string
+
+    ForgotPasswordRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+
+    ResetPasswordRequest:
+      type: object
+      required:
+        - email
+        - token
+        - new_password
+      properties:
+        email:
+          type: string
+          format: email
+        token:
+          type: string
+        new_password:
+          type: string
+          format: password
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+
+    RefreshTokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+
+    ChangePasswordRequest:
+      type: object
+      required:
+        - current_password
+        - new_password
+      properties:
+        current_password:
+          type: string
+          format: password
+        new_password:
+          type: string
+          format: password
+
+    AssignRoleRequest:
+      type: object
+      required:
+        - user_id
+        - role
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [user, admin, developer, editor, viewer, reviewer]
+
+    UserRoleResponse:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [user, admin, developer, editor, viewer, reviewer]
+
+    SuccessResponse:
+      type: object
+      properties:
+        message:
+          type: string
+
+    AddSSHKeyRequest:
+      type: object
+      required:
+        - name
+        - public_key
+      properties:
+        name:
+          type: string
+        public_key:
+          type: string
+
+    SSHKey:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        public_key:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [user, admin, developer, editor, viewer, reviewer]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
