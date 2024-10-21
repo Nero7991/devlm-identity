@@ -30,17 +30,17 @@ func NewService(db database.PostgresDB, logger *log.Logger, sshService *ssh.Serv
 }
 
 func RegisterRoutes(router *mux.Router, service *Service) {
-	router.HandleFunc("/users", service.CreateUser).Methods("POST")
-	router.HandleFunc("/users/{id}", service.GetUser).Methods("GET")
-	router.HandleFunc("/users", service.ListUsers).Methods("GET")
-	router.HandleFunc("/users/{id}", service.UpdateUser).Methods("PUT")
-	router.HandleFunc("/users/{id}", service.DeleteUser).Methods("DELETE")
-	router.HandleFunc("/users/{id}/change-password", service.ChangePassword).Methods("POST")
-	router.HandleFunc("/users/{id}/update-role", service.UpdateUserRole).Methods("PATCH")
-	router.HandleFunc("/users/forgot-password", service.ForgotPassword).Methods("POST")
-	router.HandleFunc("/users/reset-password", service.ResetPassword).Methods("POST")
-	router.HandleFunc("/users/{id}/role", service.GetUserRole).Methods("GET")
-	router.HandleFunc("/users/{id}/assign-role", service.AssignUserRole).Methods("POST")
+	router.HandleFunc("", service.CreateUser).Methods("POST")
+	router.HandleFunc("/{id}", service.GetUser).Methods("GET")
+	router.HandleFunc("", service.ListUsers).Methods("GET")
+	router.HandleFunc("/{id}", service.UpdateUser).Methods("PUT")
+	router.HandleFunc("/{id}", service.DeleteUser).Methods("DELETE")
+	router.HandleFunc("/{id}/change-password", service.ChangePassword).Methods("POST")
+	router.HandleFunc("/{id}/update-role", service.UpdateUserRole).Methods("PATCH")
+	router.HandleFunc("/forgot-password", service.ForgotPassword).Methods("POST")
+	router.HandleFunc("/reset-password", service.ResetPassword).Methods("POST")
+	router.HandleFunc("/{id}/role", service.GetUserRole).Methods("GET")
+	router.HandleFunc("/{id}/assign-role", service.AssignUserRole).Methods("POST")
 }
 
 func (s *Service) CreateUser(w http.ResponseWriter, r *http.Request) {
@@ -330,8 +330,8 @@ func (s *Service) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var passwordChange struct {
-		OldPassword string `json:"old_password"`
-		NewPassword string `json:"new_password"`
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&passwordChange); err != nil {
@@ -347,9 +347,11 @@ func (s *Service) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := user.VerifyPassword(passwordChange.OldPassword); err != nil {
-		s.logger.Printf("Invalid old password for user ID %s", id)
-		http.Error(w, "Invalid old password", http.StatusUnauthorized)
+	s.logger.Printf("Attempting to change password for user ID: %s", id)
+
+	if err := user.VerifyPassword(passwordChange.CurrentPassword); err != nil {
+		s.logger.Printf("Invalid current password for user ID %s: %v", id, err)
+		http.Error(w, "Invalid current password", http.StatusUnauthorized)
 		return
 	}
 
@@ -361,7 +363,7 @@ func (s *Service) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	user.UpdatedAt = time.Now()
 
-	s.logger.Printf("Changing password for user: ID=%s, Username=%s", user.ID, user.Username)
+	s.logger.Printf("Updating user password in database: ID=%s, Username=%s", user.ID, user.Username)
 
 	if err := s.db.UpdateUser(user); err != nil {
 		s.logger.Printf("Failed to save updated user: %v", err)

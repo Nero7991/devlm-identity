@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -17,7 +16,6 @@ import (
 	"github.com/Nero7991/devlm/devlm-identity/pkg/middleware"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
-	"github.com/google/uuid"
 )
 
 func loadEnv() error {
@@ -83,77 +81,30 @@ func main() {
 	router.Use(debugMiddleware)
 	router.Use(middleware.LoggingMiddleware)
 
-	auth.RegisterRoutes(router, authService)
-
-	userRouter := router.PathPrefix("/api/users").Subrouter()
-	userRouter.Use(func(next http.Handler) http.Handler {
-		return authService.AuthMiddleware(next.ServeHTTP)
-	})
-	userRouter.Use(func(next http.Handler) http.Handler {
-		return authService.AdminMiddleware(next)
-	})
-	user.RegisterRoutes(userRouter, userService)
-
-	sshRouter := router.PathPrefix("/api/ssh").Subrouter()
-	sshRouter.Use(func(next http.Handler) http.Handler {
-		return authService.AuthMiddleware(next.ServeHTTP)
-	})
-	ssh.RegisterRoutes(sshRouter, sshService)
-
-	router.HandleFunc("/api/v1/users/register", authService.Register).Methods("POST")
-	router.HandleFunc("/api/v1/users/login", authService.Login).Methods("POST")
-	router.HandleFunc("/api/v1/users/forgot-password", authService.ForgotPassword).Methods("POST")
+	// Public routes
+	router.HandleFunc("/api/v1/users/register", auth.RateLimitMiddleware(authService.RegisterLimiter, authService.Register)).Methods("POST")
+	router.HandleFunc("/api/v1/users/login", auth.RateLimitMiddleware(authService.LoginLimiter, authService.Login)).Methods("POST")
+	router.HandleFunc("/api/v1/users/forgot-password", auth.RateLimitMiddleware(authService.ResetPasswordLimiter, authService.ForgotPassword)).Methods("POST")
 	router.HandleFunc("/api/v1/users/reset-password", authService.ResetPassword).Methods("POST")
+	router.HandleFunc("/api/v1/users/refresh-token", authService.RefreshToken).Methods("POST")
 
-	router.HandleFunc("/auth/assign-role", func(w http.ResponseWriter, r *http.Request) {
-		authService.AdminMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			logger.Printf("Debug - Entering AssignRole handler")
+	// Protected routes
+	router.Handle("/api/v1/users/profile", authService.AuthMiddleware(http.HandlerFunc(authService.GetUserProfile))).Methods("GET")
+	router.Handle("/api/v1/users/change-password", authService.AuthMiddleware(http.HandlerFunc(authService.ChangePassword))).Methods("POST")
 
-			var assignRoleRequest struct {
-				UserID uuid.UUID `json:"user_id"`
-				Role   string    `json:"role"`
-			}
+	// Admin routes
+	router.Handle("/api/v1/users", authService.AdminMiddleware(http.HandlerFunc(userService.ListUsers))).Methods("GET")
+	router.Handle("/api/v1/users/{id}", authService.AdminMiddleware(http.HandlerFunc(userService.GetUser))).Methods("GET")
+	router.Handle("/api/v1/users/{id}", authService.AdminMiddleware(http.HandlerFunc(userService.UpdateUser))).Methods("PUT")
+	router.Handle("/api/v1/users/{id}", authService.AdminMiddleware(http.HandlerFunc(userService.DeleteUser))).Methods("DELETE")
+	router.Handle("/api/v1/users/{id}/update-role", authService.AdminMiddleware(http.HandlerFunc(userService.UpdateUserRole))).Methods("PATCH")
+	router.Handle("/api/v1/users/{id}/role", authService.AdminMiddleware(http.HandlerFunc(userService.GetUserRole))).Methods("GET")
+	router.Handle("/api/v1/auth/assign-role", authService.AdminMiddleware(http.HandlerFunc(authService.AssignRole))).Methods("POST")
 
-			if err := json.NewDecoder(r.Body).Decode(&assignRoleRequest); err != nil {
-				logger.Printf("Error decoding AssignRole request: %v", err)
-				http.Error(w, "Invalid request body", http.StatusBadRequest)
-				return
-			}
-
-			logger.Printf("Debug - AssignRole request: UserID=%s, Role=%s", assignRoleRequest.UserID, assignRoleRequest.Role)
-
-			user, err := authService.GetUserByID(assignRoleRequest.UserID)
-			if err != nil {
-				logger.Printf("Error retrieving user: %v", err)
-				http.Error(w, "User not found", http.StatusNotFound)
-				return
-			}
-
-			if err := user.UpdateRole(assignRoleRequest.Role); err != nil {
-				logger.Printf("Error updating user role: %v", err)
-				http.Error(w, "Invalid role", http.StatusBadRequest)
-				return
-			}
-
-			user.UpdatedAt = time.Now()
-
-			if err := authService.UpdateUser(user); err != nil {
-				logger.Printf("Error saving updated user: %v", err)
-				http.Error(w, "Failed to assign role", http.StatusInternalServerError)
-				return
-			}
-
-			logger.Printf("Debug - Role assigned successfully: UserID=%s, Role=%s", assignRoleRequest.UserID, assignRoleRequest.Role)
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]string{"message": "Role assigned successfully"})
-
-			logger.Printf("Debug - Exiting AssignRole handler")
-		})).ServeHTTP(w, r)
-	}).Methods("POST")
-
-	router.HandleFunc("/api/users/{id}/role", authService.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		userService.GetUserRole(w, r)
-	}))).Methods("GET")
+	// SSH key routes
+	router.Handle("/api/v1/auth/ssh-keys", authService.AuthMiddleware(http.HandlerFunc(authService.ListSSHKeys))).Methods("GET")
+	router.Handle("/api/v1/auth/ssh-keys", authService.AuthMiddleware(http.HandlerFunc(authService.AddSSHKey))).Methods("POST")
+	router.Handle("/api/v1/auth/ssh-keys/{id}", authService.AuthMiddleware(http.HandlerFunc(authService.DeleteSSHKey))).Methods("DELETE")
 
 	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logger.Printf("Debug - Catch-all route hit: %s %s", r.Method, r.URL.Path)

@@ -22,9 +22,9 @@ func NewService(db database.PostgresDB, logger *log.Logger) *Service {
 }
 
 func RegisterRoutes(router *mux.Router, service *Service) {
-	router.HandleFunc("/auth/ssh-keys", service.AddSSHKeyHandler).Methods("POST")
-	router.HandleFunc("/auth/ssh-keys", service.ListSSHKeysHandler).Methods("GET")
-	router.HandleFunc("/auth/ssh-keys/{key_id}", service.DeleteSSHKeyHandler).Methods("DELETE")
+	router.HandleFunc("/api/v1/auth/ssh-keys", service.AddSSHKeyHandler).Methods("POST")
+	router.HandleFunc("/api/v1/auth/ssh-keys", service.ListSSHKeysHandler).Methods("GET")
+	router.HandleFunc("/api/v1/auth/ssh-keys/{key_id}", service.DeleteSSHKeyHandler).Methods("DELETE")
 }
 
 func (s *Service) DeleteSSHKeyHandler(w http.ResponseWriter, r *http.Request) {
@@ -99,20 +99,11 @@ func (s *Service) AddSSHKeyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.Printf("AddSSHKeyHandler: User ID from context: %s", userID)
 
-	rawBody, ok := r.Context().Value("rawBody").([]byte)
-	if !ok {
-		s.logger.Printf("AddSSHKeyHandler: Failed to get raw body from context")
-		http.Error(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-	s.logger.Printf("AddSSHKeyHandler: Raw request body length: %d", len(rawBody))
-	s.logger.Printf("AddSSHKeyHandler: Raw request body: %s", string(rawBody))
-
 	var sshKeyRequest struct {
 		PublicKey string `json:"public_key"`
 		Name      string `json:"name"`
 	}
-	if err := json.Unmarshal(rawBody, &sshKeyRequest); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&sshKeyRequest); err != nil {
 		s.logger.Printf("AddSSHKeyHandler: Failed to decode request body: %v", err)
 		http.Error(w, fmt.Sprintf("Invalid request body: %v", err), http.StatusBadRequest)
 		return
@@ -126,11 +117,17 @@ func (s *Service) AddSSHKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if sshKeyRequest.Name == "" {
+		s.logger.Printf("AddSSHKeyHandler: Name is empty")
+		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+
 	s.logger.Printf("AddSSHKeyHandler: Attempting to add SSH key for user ID: %s", userID)
 
 	if err := s.AddSSHKey(userID, sshKeyRequest.Name, sshKeyRequest.PublicKey); err != nil {
 		s.logger.Printf("AddSSHKeyHandler: Failed to add SSH key: %v", err)
-		http.Error(w, "Failed to add SSH key", http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to add SSH key: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -155,7 +152,7 @@ func (s *Service) AddSSHKey(userID uuid.UUID, name, publicKey string) error {
 	s.logger.Printf("AddSSHKey: Adding SSH key for user ID: %s, Name: %s", userID, name)
 	if err := s.db.AddSSHKey(userID, name, publicKey); err != nil {
 		s.logger.Printf("AddSSHKey: Failed to add SSH key to database for user ID %s: %v", userID, err)
-		return err
+		return fmt.Errorf("failed to add SSH key: %v", err)
 	}
 	s.logger.Printf("AddSSHKey: Successfully added SSH key for user ID: %s", userID)
 	return nil

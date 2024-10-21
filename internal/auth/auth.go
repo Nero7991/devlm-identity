@@ -26,77 +26,76 @@ import (
 )
 
 type Service struct {
-	db           database.PostgresDB
-	loginLimiter *rate.Limiter
-	logger       *log.Logger
-	registerLimiter *rate.Limiter
-	resetPasswordLimiter *rate.Limiter
-	userService *user.Service
-	sshService *ssh.Service
+	db                   database.PostgresDB
+	logger               *log.Logger
+	userService          *user.Service
+	sshService           *ssh.Service
+	RegisterLimiter      *rate.Limiter
+	LoginLimiter         *rate.Limiter
+	ResetPasswordLimiter *rate.Limiter
 }
 
 func NewService(db database.PostgresDB, logger *log.Logger, userService *user.Service, sshService *ssh.Service) *Service {
 	return &Service{
-		db:           db,
-		loginLimiter: rate.NewLimiter(rate.Every(time.Minute), 5),
-		logger:       logger,
-		registerLimiter: rate.NewLimiter(rate.Every(time.Hour), 10),
-		resetPasswordLimiter: rate.NewLimiter(rate.Every(time.Hour), 3),
-		userService: userService,
-		sshService: sshService,
+		db:                   db,
+		logger:               logger,
+		userService:          userService,
+		sshService:           sshService,
+		RegisterLimiter:      rate.NewLimiter(rate.Every(time.Hour), 10),
+		LoginLimiter:         rate.NewLimiter(rate.Every(time.Minute), 5),
+		ResetPasswordLimiter: rate.NewLimiter(rate.Every(time.Hour), 3),
 	}
 }
 
 func RegisterRoutes(router *mux.Router, service *Service) {
-	router.HandleFunc("/auth/register", RateLimitMiddleware(service.registerLimiter, service.Register)).Methods("POST")
-	router.HandleFunc("/auth/login", RateLimitMiddleware(service.loginLimiter, service.Login)).Methods("POST")
-	router.HandleFunc("/auth/forgot-password", RateLimitMiddleware(service.resetPasswordLimiter, service.ForgotPassword)).Methods("POST")
-	router.HandleFunc("/auth/reset-password", service.ResetPassword).Methods("POST")
-	router.HandleFunc("/auth/logout", service.AuthMiddleware(service.Logout)).Methods("POST")
-	router.HandleFunc("/auth/refresh", service.RefreshToken).Methods("POST")
-	router.HandleFunc("/auth/change-password", service.AuthMiddleware(service.ChangePassword)).Methods("POST")
-	router.HandleFunc("/auth/assign-role", service.AdminMiddleware(http.HandlerFunc(service.AssignRole))).Methods("POST")
-	router.HandleFunc("/auth/ssh-keys", service.AuthMiddleware(service.ListSSHKeys)).Methods("GET")
-	router.HandleFunc("/auth/ssh-keys", service.AuthMiddleware(service.AddSSHKey)).Methods("POST")
-	router.HandleFunc("/auth/ssh-keys/{id}", service.AuthMiddleware(service.DeleteSSHKey)).Methods("DELETE")
-	router.HandleFunc("/auth/profile", service.AuthMiddleware(service.GetUserProfile)).Methods("GET")
-	router.HandleFunc("/api/v1/users/profile", service.AuthMiddleware(service.GetUserProfile)).Methods("GET")
+	router.HandleFunc("/api/v1/users/register", RateLimitMiddleware(service.RegisterLimiter, service.Register)).Methods("POST")
+	router.HandleFunc("/api/v1/users/login", RateLimitMiddleware(service.LoginLimiter, service.Login)).Methods("POST")
+	router.HandleFunc("/api/v1/users/forgot-password", RateLimitMiddleware(service.ResetPasswordLimiter, service.ForgotPassword)).Methods("POST")
+	router.HandleFunc("/api/v1/users/reset-password", service.ResetPassword).Methods("POST")
 	router.HandleFunc("/api/v1/users/refresh-token", service.RefreshToken).Methods("POST")
-	router.HandleFunc("/api/v1/users/change-password", service.AuthMiddleware(service.ChangePassword)).Methods("POST")
+	router.Handle("/api/v1/users/profile", service.AuthMiddleware(http.HandlerFunc(service.GetUserProfile))).Methods("GET")
+	router.Handle("/api/v1/users/change-password", service.AuthMiddleware(http.HandlerFunc(service.ChangePassword))).Methods("POST")
+	router.Handle("/api/v1/auth/assign-role", service.AdminMiddleware(http.HandlerFunc(service.AssignRole))).Methods("POST")
+	router.Handle("/api/v1/auth/ssh-keys", service.AuthMiddleware(http.HandlerFunc(service.ListSSHKeys))).Methods("GET")
+	router.Handle("/api/v1/auth/ssh-keys", service.AuthMiddleware(http.HandlerFunc(service.AddSSHKey))).Methods("POST")
+	router.Handle("/api/v1/auth/ssh-keys/{id}", service.AuthMiddleware(http.HandlerFunc(service.DeleteSSHKey))).Methods("DELETE")
 }
 
 func (s *Service) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		s.logger.Printf("AuthMiddleware: Processing request for %s %s", r.Method, r.URL.Path)
+
 		tokenString := r.Header.Get("Authorization")
 		if tokenString == "" {
-			s.logger.Println("Missing authorization token")
+			s.logger.Printf("AuthMiddleware: Missing authorization token for %s %s", r.Method, r.URL.Path)
 			http.Error(w, "Missing authorization token", http.StatusUnauthorized)
 			return
 		}
 
 		claims, err := ValidateToken(tokenString)
 		if err != nil {
-			s.logger.Printf("Invalid token: %v", err)
+			s.logger.Printf("AuthMiddleware: Invalid token for %s %s: %v", r.Method, r.URL.Path, err)
 			http.Error(w, "Invalid token", http.StatusUnauthorized)
 			return
 		}
 
 		userID, ok := (*claims)["user_id"].(string)
 		if !ok {
-			s.logger.Println("Invalid user ID in claims")
+			s.logger.Printf("AuthMiddleware: Invalid user ID in claims for %s %s", r.Method, r.URL.Path)
 			http.Error(w, "Invalid token", http.StatusUnauthorized)
 			return
 		}
 
 		uid, err := uuid.Parse(userID)
 		if err != nil {
-			s.logger.Printf("Invalid UUID format for user ID: %v", err)
+			s.logger.Printf("AuthMiddleware: Invalid UUID format for user ID in %s %s: %v", r.Method, r.URL.Path, err)
 			http.Error(w, "Invalid token", http.StatusUnauthorized)
 			return
 		}
 
 		ctx := context.WithValue(r.Context(), "userID", uid)
 		ctx = context.WithValue(ctx, "claims", claims)
+		s.logger.Printf("AuthMiddleware: Authentication successful for user %s on %s %s", uid, r.Method, r.URL.Path)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	}
 }
@@ -104,6 +103,7 @@ func (s *Service) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 func (s *Service) AdminMiddleware(next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.logger.Println("AdminMiddleware: Starting")
+
 		claims, ok := r.Context().Value("claims").(*jwt.MapClaims)
 		if !ok {
 			s.logger.Println("AdminMiddleware: Failed to get user claims from context")
@@ -289,13 +289,6 @@ func (s *Service) Register(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"message": "User created successfully"})
 }
 
-func (s *Service) Logout(w http.ResponseWriter, r *http.Request) {
-	s.logger.Println("User logged out")
-	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "Logged out successfully"})
-}
-
 func (s *Service) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -356,32 +349,34 @@ func (s *Service) RefreshToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	s.logger.Printf("ForgotPassword: Processing request for %s %s", r.Method, r.URL.Path)
+
 	bodyBytes, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		s.logger.Printf("Error reading request body: %v", err)
+		s.logger.Printf("ForgotPassword: Error reading request body: %v", err)
 		http.Error(w, "Error reading request body", http.StatusBadRequest)
 		return
 	}
-	s.logger.Printf("Raw request body: %s", string(bodyBytes))
+	s.logger.Printf("ForgotPassword: Raw request body: %s", string(bodyBytes))
 
 	var forgotPasswordRequest struct {
 		Email string `json:"email"`
 	}
 
 	if err := json.Unmarshal(bodyBytes, &forgotPasswordRequest); err != nil {
-		s.logger.Printf("Invalid JSON in request body: %v", err)
+		s.logger.Printf("ForgotPassword: Invalid JSON in request body: %v", err)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	s.logger.Printf("Forgot password request for email: %s", forgotPasswordRequest.Email)
+	s.logger.Printf("ForgotPassword: Forgot password request for email: %s", forgotPasswordRequest.Email)
 
 	user, err := s.userService.GetUserByEmail(forgotPasswordRequest.Email)
 	if err != nil {
 		if err == database.ErrUserNotFound {
-			s.logger.Printf("User not found for email %s", forgotPasswordRequest.Email)
+			s.logger.Printf("ForgotPassword: User not found for email %s", forgotPasswordRequest.Email)
 		} else {
-			s.logger.Printf("Error retrieving user: %v", err)
+			s.logger.Printf("ForgotPassword: Error retrieving user: %v", err)
 		}
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{"message": "If the email is registered, a password reset link will be sent."})
@@ -390,23 +385,23 @@ func (s *Service) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 
 	resetToken, err := generateResetToken()
 	if err != nil {
-		s.logger.Printf("Failed to generate reset token: %v", err)
+		s.logger.Printf("ForgotPassword: Failed to generate reset token: %v", err)
 		http.Error(w, "Failed to process password reset request", http.StatusInternalServerError)
 		return
 	}
 
 	expirationTime := time.Now().Add(24 * time.Hour)
 	if err := s.db.StoreResetToken(user.ID, resetToken, expirationTime); err != nil {
-		s.logger.Printf("Failed to store reset token: %v", err)
+		s.logger.Printf("ForgotPassword: Failed to store reset token: %v", err)
 		http.Error(w, "Failed to process password reset request", http.StatusInternalServerError)
 		return
 	}
 
-	s.logger.Printf("Generated reset token for user %s: %s (expires at %v)", user.ID, resetToken, expirationTime)
+	s.logger.Printf("ForgotPassword: Generated reset token for user %s: %s (expires at %v)", user.ID, resetToken, expirationTime)
 
 	// TODO: Send email with reset token
 	// For now, we'll just log the reset token
-	s.logger.Printf("Reset token for user %s: %s", user.ID, resetToken)
+	s.logger.Printf("ForgotPassword: Reset token for user %s: %s", user.ID, resetToken)
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "If the email is registered, a password reset link will be sent."})
@@ -705,8 +700,7 @@ func (s *Service) DeleteSSHKey(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"message": "SSH key deleted successfully"})
 }
 
-func (s *Service) GetUserProfile(w http.ResponseWriter, r *http.Request) {
-	userID, ok := r.Context().Value("userID").(uuid.UUID)
+func (s *Service) GetUserProfile(w http.ResponseWriter, r *http.Request) {	userID, ok := r.Context().Value("userID").(uuid.UUID)
 	if !ok {
 		s.logger.Println("Failed to get user ID from context")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -741,6 +735,40 @@ func (s *Service) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(profile)
 }
 
+func (s *Service) ListUsers(w http.ResponseWriter, r *http.Request) {
+	s.logger.Println("ListUsers: Starting")
+
+	claims, ok := r.Context().Value("claims").(*jwt.MapClaims)
+	if !ok {
+		s.logger.Println("ListUsers: Failed to get user claims from context")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	role, ok := (*claims)["role"].(string)
+	if !ok || role != "admin" {
+		s.logger.Printf("ListUsers: User is not an admin. Role: %s", role)
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	users, err := s.db.ListUsers(100, 0) // Limiting to 100 users for now
+	if err != nil {
+		s.logger.Printf("ListUsers: Failed to list users: %v", err)
+		http.Error(w, "Failed to list users", http.StatusInternalServerError)
+		return
+	}
+
+	// Remove sensitive information
+	for i := range users {
+		users[i].PasswordHash = ""
+	}
+
+	s.logger.Printf("ListUsers: Retrieved %d users", len(users))
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(users)
+}
+
 func generateToken(user *models.User) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user_id":  user.ID.String(),
@@ -766,7 +794,6 @@ func generateRefreshToken(user *models.User) (string, error) {
 func ValidateToken(tokenString string) (*jwt.MapClaims, error) {
 	log.Printf("Validating token: %s", tokenString)
 
-	// Remove "Bearer " prefix if present
 	tokenString = strings.TrimPrefix(tokenString, "Bearer ")
 
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {

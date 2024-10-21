@@ -32,13 +32,7 @@ type User struct {
 	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
 }
 
-type SSHKey struct {
-	ID        uuid.UUID `json:"id"`
-	UserID    uuid.UUID `json:"user_id"`
-	PublicKey string    `json:"public_key"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
-}
+// Removed SSHKey struct definition from this file to resolve conflict
 
 // NewUser creates a new User instance with default values
 func NewUser(username, email, password string) (*User, error) {

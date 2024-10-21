@@ -31,13 +31,6 @@ paths:
           description: Username or email already exists
         '500':
           description: Internal server error
-      x-logging:
-        - request_body
-        - response_body
-        - user_id
-        - role
-        - created_at
-        - creator_id
 
   /api/v1/users/login:
     post:
@@ -61,12 +54,6 @@ paths:
           description: Invalid credentials
         '500':
           description: Internal server error
-      x-logging:
-        - request_body
-        - response_body
-        - user_id
-        - role
-        - login_time
 
   /api/v1/users/forgot-password:
     post:
@@ -88,11 +75,6 @@ paths:
           description: Invalid input
         '500':
           description: Internal server error
-      x-logging:
-        - request_body
-        - response_body
-        - user_email
-        - reset_token
 
   /api/v1/users/reset-password:
     post:
@@ -114,29 +96,6 @@ paths:
           description: Invalid input or expired reset token
         '500':
           description: Internal server error
-      x-logging:
-        - request_body
-        - response_body
-        - user_id
-        - reset_token
-
-  /auth/logout:
-    post:
-      summary: Log out user
-      security:
-        - BearerAuth: []
-      responses:
-        '200':
-          description: Logged out successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuccessResponse'
-        '401':
-          description: Unauthorized
-      x-logging:
-        - user_id
-        - logout_time
 
   /api/v1/users/refresh-token:
     post:
@@ -160,10 +119,23 @@ paths:
           description: Invalid refresh token
         '500':
           description: Internal server error
-      x-logging:
-        - request_body
-        - response_body
-        - user_id
+
+  /api/v1/users/profile:
+    get:
+      summary: Get user profile
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: User profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal server error
 
   /api/v1/users/change-password:
     post:
@@ -189,11 +161,8 @@ paths:
           description: Unauthorized or invalid old password
         '500':
           description: Internal server error
-      x-logging:
-        - user_id
-        - password_change_time
 
-  /auth/assign-role:
+  /api/v1/auth/assign-role:
     post:
       summary: Assign role to user (Admin only)
       security:
@@ -221,15 +190,8 @@ paths:
           description: User not found
         '500':
           description: Internal server error
-      x-logging:
-        - request_body
-        - response_body
-        - admin_user_id
-        - target_user_id
-        - old_role
-        - new_role
 
-  /api/users/{id}/role:
+  /api/v1/users/{id}/role:
     get:
       summary: Get user role
       security:
@@ -254,11 +216,8 @@ paths:
           description: User not found
         '500':
           description: Internal server error
-      x-logging:
-        - user_id
-        - role
 
-  /auth/ssh-keys:
+  /api/v1/auth/ssh-keys:
     get:
       summary: List SSH keys for authenticated user
       security:
@@ -276,9 +235,6 @@ paths:
           description: Unauthorized
         '500':
           description: Internal server error
-      x-logging:
-        - user_id
-        - ssh_key_count
     post:
       summary: Add new SSH key for authenticated user
       security:
@@ -302,12 +258,8 @@ paths:
           description: Unauthorized
         '500':
           description: Internal server error
-      x-logging:
-        - user_id
-        - ssh_key_name
-        - ssh_key_fingerprint
 
-  /auth/ssh-keys/{id}:
+  /api/v1/auth/ssh-keys/{id}:
     delete:
       summary: Delete SSH key for authenticated user
       security:
@@ -332,29 +284,6 @@ paths:
           description: SSH key not found
         '500':
           description: Internal server error
-      x-logging:
-        - user_id
-        - ssh_key_id
-
-  /api/v1/users/profile:
-    get:
-      summary: Get user profile
-      security:
-        - BearerAuth: []
-      responses:
-        '200':
-          description: User profile retrieved successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserProfile'
-        '401':
-          description: Unauthorized
-        '500':
-          description: Internal server error
-      x-logging:
-        - user_id
-        - profile_access_time
 
 components:
   schemas:
@@ -375,7 +304,7 @@ components:
           format: password
         role:
           type: string
-          enum: [user, admin, developer, editor, viewer, reviewer]
+          enum: [user, admin]
 
     UserCreatedResponse:
       type: object
@@ -387,7 +316,7 @@ components:
           format: uuid
         role:
           type: string
-          enum: [user, admin, developer, editor, viewer, reviewer]
+          enum: [user, admin]
         created_at:
           type: string
           format: date-time
@@ -397,10 +326,9 @@ components:
 
     UserLogin:
       type: object
-      required:
-        - email
-        - password
       properties:
+        username:
+          type: string
         email:
           type: string
           format: email
@@ -479,14 +407,14 @@ components:
           format: uuid
         role:
           type: string
-          enum: [user, admin, developer, editor, viewer, reviewer]
+          enum: [user, admin]
 
     UserRoleResponse:
       type: object
       properties:
         role:
           type: string
-          enum: [user, admin, developer, editor, viewer, reviewer]
+          enum: [user, admin]
 
     SuccessResponse:
       type: object
@@ -535,7 +463,7 @@ components:
           format: email
         role:
           type: string
-          enum: [user, admin, developer, editor, viewer, reviewer]
+          enum: [user, admin]
         created_at:
           type: string
           format: date-time

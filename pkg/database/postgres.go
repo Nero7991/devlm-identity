@@ -494,6 +494,44 @@ func (pdb *postgresDB) CheckDatabaseSchema() error {
 		return fmt.Errorf("missing columns in users table: %v", expectedColumns)
 	}
 
+	sshKeysQuery := `
+	SELECT column_name, data_type 
+	FROM information_schema.columns 
+	WHERE table_name = 'ssh_keys'
+	`
+	rows, err = pdb.db.Query(sshKeysQuery)
+	if err != nil {
+		return fmt.Errorf("failed to query ssh_keys table schema: %v", err)
+	}
+	defer rows.Close()
+
+	expectedSSHKeyColumns := map[string]string{
+		"id":         "uuid",
+		"user_id":    "uuid",
+		"name":       "character varying",
+		"public_key": "text",
+		"created_at": "timestamp with time zone",
+	}
+
+	for rows.Next() {
+		var columnName, dataType string
+		if err := rows.Scan(&columnName, &dataType); err != nil {
+			return fmt.Errorf("failed to scan column info: %v", err)
+		}
+		expectedType, exists := expectedSSHKeyColumns[columnName]
+		if !exists {
+			return fmt.Errorf("unexpected column in ssh_keys table: %s", columnName)
+		}
+		if dataType != expectedType {
+			return fmt.Errorf("column %s has unexpected data type: got %s, want %s", columnName, dataType, expectedType)
+		}
+		delete(expectedSSHKeyColumns, columnName)
+	}
+
+	if len(expectedSSHKeyColumns) > 0 {
+		return fmt.Errorf("missing columns in ssh_keys table: %v", expectedSSHKeyColumns)
+	}
+
 	pdb.logger.Println("Database schema check passed successfully")
 	return nil
 }
@@ -501,21 +539,18 @@ func (pdb *postgresDB) CheckDatabaseSchema() error {
 func (pdb *postgresDB) MigrateDatabase() error {
 	pdb.logger.Println("Starting database migration")
 
-	// Create uuid-ossp extension if it doesn't exist
 	_, err := pdb.db.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
 	if err != nil {
 		return fmt.Errorf("failed to create uuid-ossp extension: %v", err)
 	}
 	pdb.logger.Println("uuid-ossp extension created or already exists")
 
-	// Start a transaction
 	tx, err := pdb.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %v", err)
 	}
 	defer tx.Rollback()
 
-	// Create users table if it doesn't exist
 	_, err = tx.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
 			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -534,7 +569,6 @@ func (pdb *postgresDB) MigrateDatabase() error {
 	}
 	pdb.logger.Println("Users table created or already exists")
 
-	// Create ssh_keys table if it doesn't exist
 	_, err = tx.Exec(`
 		CREATE TABLE IF NOT EXISTS ssh_keys (
 			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -550,7 +584,6 @@ func (pdb *postgresDB) MigrateDatabase() error {
 	}
 	pdb.logger.Println("SSH keys table created or already exists")
 
-	// Create reset_tokens table if it doesn't exist
 	_, err = tx.Exec(`
 		CREATE TABLE IF NOT EXISTS reset_tokens (
 			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -566,7 +599,6 @@ func (pdb *postgresDB) MigrateDatabase() error {
 	}
 	pdb.logger.Println("Reset tokens table created or already exists")
 
-	// Commit the transaction
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %v", err)
 	}

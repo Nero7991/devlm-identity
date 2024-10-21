@@ -1,0 +1,75 @@
+{
+  "": [
+    "go.mod",
+    "go.sum",
+    "grep",
+    "README.md"
+  ],
+  "pkg": {
+    "": [],
+    "middleware": {
+      "": [
+        "auth_middleware.go"
+      ]
+    },
+    "models": {
+      "": [
+        "ssh_key.go",
+        "user.go"
+      ]
+    },
+    "database": {
+      "": [
+        "postgres.go"
+      ]
+    }
+  },
+  "deploy": {
+    "": [
+      "Dockerfile",
+      "k8s-service.yaml",
+      "k8s-deployment.yaml"
+    ]
+  },
+  "config": {
+    "": [
+      "config.yaml",
+      "env.example"
+    ]
+  },
+  "api": {
+    "": [
+      "openapi.yaml"
+    ]
+  },
+  "internal": {
+    "": [],
+    "ssh": {
+      "": [
+        "ssh_test.go",
+        "ssh.go"
+      ]
+    },
+    "auth": {
+      "": [
+        "auth_test.go",
+        "auth.go"
+      ]
+    },
+    "user": {
+      "": [
+        "user_test.go",
+        "user.go"
+      ]
+    }
+  },
+  "cmd": {
+    "": [],
+    "api": {
+      "": [
+        "main_test.go",
+        "main.go"
+      ]
+    }
+  }
+}

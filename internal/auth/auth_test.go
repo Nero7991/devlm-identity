@@ -14,6 +14,7 @@ import (
 	"github.com/Nero7991/devlm/devlm-identity/pkg/models"
 	"github.com/Nero7991/devlm/devlm-identity/internal/user"
 	"github.com/dgrijalva/jwt-go"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"golang.org/x/crypto/bcrypt"
@@ -50,7 +51,7 @@ func (m *MockDB) UpdateUser(user *models.User) error {
 	return args.Error(0)
 }
 
-func (m *MockDB) GetUserByID(id int) (*models.User, error) {
+func (m *MockDB) GetUserByID(id uuid.UUID) (*models.User, error) {
 	args := m.Called(id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -58,7 +59,7 @@ func (m *MockDB) GetUserByID(id int) (*models.User, error) {
 	return args.Get(0).(*models.User), args.Error(1)
 }
 
-func (m *MockDB) UpdateUserPassword(userID int, newPassword string) error {
+func (m *MockDB) UpdateUserPassword(userID uuid.UUID, newPassword string) error {
 	args := m.Called(userID, newPassword)
 	return args.Error(0)
 }
@@ -71,7 +72,7 @@ func (m *MockDB) GetUserByResetToken(token string) (*models.User, error) {
 	return args.Get(0).(*models.User), args.Error(1)
 }
 
-func (m *MockDB) AddSSHKey(userID int, publicKey string) error {
+func (m *MockDB) AddSSHKey(userID uuid.UUID, publicKey string) error {
 	args := m.Called(userID, publicKey)
 	return args.Error(0)
 }
@@ -96,28 +97,28 @@ func (m *MockDB) ListUsers(limit, offset int) ([]*models.User, error) {
 	return nil, nil
 }
 
-func (m *MockDB) DeleteUser(id int) error {
+func (m *MockDB) DeleteUser(id uuid.UUID) error {
 	return nil
 }
 
-func (m *MockDB) UpdatePassword(userID int, newPasswordHash string) error {
+func (m *MockDB) UpdatePassword(userID uuid.UUID, newPasswordHash string) error {
 	return nil
 }
 
-func (m *MockDB) ListSSHKeys(userID int) ([]string, error) {
+func (m *MockDB) ListSSHKeys(userID uuid.UUID) ([]string, error) {
 	return nil, nil
 }
 
-func (m *MockDB) DeleteSSHKey(userID int, keyID int) error {
+func (m *MockDB) DeleteSSHKey(userID uuid.UUID, keyID uuid.UUID) error {
 	return nil
 }
 
-func (m *MockDB) StoreResetToken(userID int, token string, expiresAt time.Time) error {
+func (m *MockDB) StoreResetToken(userID uuid.UUID, token string, expiresAt time.Time) error {
 	return nil
 }
 
-func (m *MockDB) ValidateResetToken(token string) (int, error) {
-	return 0, nil
+func (m *MockDB) ValidateResetToken(token string) (uuid.UUID, error) {
+	return uuid.Nil, nil
 }
 
 func (m *MockDB) InvalidateResetToken(token string) error {
@@ -153,7 +154,7 @@ func TestLogin(t *testing.T) {
 		password := "Password123!"
 		hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 		user := &models.User{
-			ID:           1,
+			ID:           uuid.New(),
 			Username:     "testuser",
 			PasswordHash: string(hashedPassword),
 			Role:         "user",
@@ -301,12 +302,12 @@ func TestRefreshToken(t *testing.T) {
 
 	t.Run("Successful token refresh", func(t *testing.T) {
 		user := &models.User{
-			ID:       1,
+			ID:       uuid.New(),
 			Username: "testuser",
 			Role:     "user",
 		}
 
-		mockDB.On("GetUserByID", 1).Return(user, nil)
+		mockDB.On("GetUserByID", user.ID).Return(user, nil)
 
 		// Generate a valid refresh token
 		refreshToken, _ := generateRefreshToken(user)
@@ -361,17 +362,17 @@ func TestChangePassword(t *testing.T) {
 		hashedOldPassword, _ := bcrypt.GenerateFromPassword([]byte(oldPassword), bcrypt.DefaultCost)
 
 		user := &models.User{
-			ID:           1,
+			ID:           uuid.New(),
 			Username:     "testuser",
 			PasswordHash: string(hashedOldPassword),
 		}
 
-		mockDB.On("GetUserByID", 1).Return(user, nil)
-		mockDB.On("UpdateUserPassword", 1, mock.AnythingOfType("string")).Return(nil)
+		mockDB.On("GetUserByID", user.ID).Return(user, nil)
+		mockDB.On("UpdateUserPassword", user.ID, mock.AnythingOfType("string")).Return(nil)
 
 		reqBody := []byte(`{"old_password": "OldPassword123!", "new_password": "NewPassword123!"}`)
 		req, _ := http.NewRequest("POST", "/auth/change-password", bytes.NewBuffer(reqBody))
-		req = req.WithContext(context.WithValue(req.Context(), "claims", &jwt.MapClaims{"user_id": float64(1)}))
+		req = req.WithContext(context.WithValue(req.Context(), "userID", user.ID))
 		rr := httptest.NewRecorder()
 
 		handler := http.HandlerFunc(service.ChangePassword)
@@ -390,16 +391,16 @@ func TestChangePassword(t *testing.T) {
 		hashedOldPassword, _ := bcrypt.GenerateFromPassword([]byte(oldPassword), bcrypt.DefaultCost)
 
 		user := &models.User{
-			ID:           1,
+			ID:           uuid.New(),
 			Username:     "testuser",
 			PasswordHash: string(hashedOldPassword),
 		}
 
-		mockDB.On("GetUserByID", 1).Return(user, nil)
+		mockDB.On("GetUserByID", user.ID).Return(user, nil)
 
 		reqBody := []byte(`{"old_password": "WrongOldPassword123!", "new_password": "NewPassword123!"}`)
 		req, _ := http.NewRequest("POST", "/auth/change-password", bytes.NewBuffer(reqBody))
-		req = req.WithContext(context.WithValue(req.Context(), "claims", &jwt.MapClaims{"user_id": float64(1)}))
+		req = req.WithContext(context.WithValue(req.Context(), "userID", user.ID))
 		rr := httptest.NewRecorder()
 
 		handler := http.HandlerFunc(service.ChangePassword)
@@ -412,7 +413,7 @@ func TestChangePassword(t *testing.T) {
 	t.Run("Malformed JSON in request body", func(t *testing.T) {
 		reqBody := []byte(`{"old_password": "OldPassword123!", "new_password": "NewPassword123!`)
 		req, _ := http.NewRequest("POST", "/auth/change-password", bytes.NewBuffer(reqBody))
-		req = req.WithContext(context.WithValue(req.Context(), "claims", &jwt.MapClaims{"user_id": float64(1)}))
+		req = req.WithContext(context.WithValue(req.Context(), "userID", uuid.New()))
 		rr := httptest.NewRecorder()
 
 		handler := http.HandlerFunc(service.ChangePassword)
@@ -430,7 +431,7 @@ func TestForgotPassword(t *testing.T) {
 
 	t.Run("Successful forgot password request", func(t *testing.T) {
 		user := &models.User{
-			ID:    1,
+			ID:    uuid.New(),
 			Email: "test@example.com",
 		}
 
@@ -438,7 +439,7 @@ func TestForgotPassword(t *testing.T) {
 		mockDB.On("UpdateUser", mock.AnythingOfType("*models.User")).Return(nil)
 
 		reqBody := []byte(`{"email": "test@example.com"}`)
-		req, _ := http.NewRequest("POST", "/auth/forgot-password", bytes.NewBuffer(reqBody))
+		req, _ := http.NewRequest("POST", "/api/v1/users/forgot-password", bytes.NewBuffer(reqBody))
 		rr := httptest.NewRecorder()
 
 		handler := http.HandlerFunc(service.ForgotPassword)
@@ -456,7 +457,7 @@ func TestForgotPassword(t *testing.T) {
 		mockUserService.On("GetUserByEmail", "nonexistent@example.com").Return(nil, database.ErrUserNotFound)
 
 		reqBody := []byte(`{"email": "nonexistent@example.com"}`)
-		req, _ := http.NewRequest("POST", "/auth/forgot-password", bytes.NewBuffer(reqBody))
+		req, _ := http.NewRequest("POST", "/api/v1/users/forgot-password", bytes.NewBuffer(reqBody))
 		rr := httptest.NewRecorder()
 
 		handler := http.HandlerFunc(service.ForgotPassword)
@@ -472,7 +473,7 @@ func TestForgotPassword(t *testing.T) {
 
 	t.Run("Malformed JSON in request body", func(t *testing.T) {
 		reqBody := []byte(`{"email": "test@example.com`)
-		req, _ := http.NewRequest("POST", "/auth/forgot-password", bytes.NewBuffer(reqBody))
+		req, _ := http.NewRequest("POST", "/api/v1/users/forgot-password", bytes.NewBuffer(reqBody))
 		rr := httptest.NewRecorder()
 
 		handler := http.HandlerFunc(service.ForgotPassword)
@@ -489,9 +490,9 @@ func TestResetPassword(t *testing.T) {
 	service := NewService(mockDB, nil, mockUserService)
 
 	t.Run("Successful password reset", func(t *testing.T) {
-		user := &models.User{ID: 1}
+		user := &models.User{ID: uuid.New()}
 		mockDB.On("GetUserByResetToken", "valid_token").Return(user, nil)
-		mockDB.On("UpdateUserPassword", 1, mock.AnythingOfType("string")).Return(nil)
+		mockDB.On("UpdateUserPassword", user.ID, mock.AnythingOfType("string")).Return(nil)
 
 		reqBody := []byte(`{"reset_token": "valid_token", "new_password": "NewPassword123!"}`)
 		req, _ := http.NewRequest("POST", "/auth/reset-password", bytes.NewBuffer(reqBody))
@@ -523,7 +524,7 @@ func TestResetPassword(t *testing.T) {
 	})
 
 	t.Run("Weak new password", func(t *testing.T) {
-		user := &models.User{ID: 1}
+		user := &models.User{ID: uuid.New()}
 		mockDB.On("GetUserByResetToken", "valid_token").Return(user, nil)
 
 		reqBody := []byte(`{"reset_token": "valid_token", "new_password": "weak"}`)
@@ -556,7 +557,7 @@ func TestAuthMiddleware(t *testing.T) {
 	service := NewService(mockDB, nil, mockUserService)
 
 	t.Run("Valid token", func(t *testing.T) {
-		user := &models.User{ID: 1, Username: "testuser", Role: "user"}
+		user := &models.User{ID: uuid.New(), Username: "testuser", Role: "user"}
 		token, _ := generateToken(user)
 
 		req, _ := http.NewRequest("GET", "/protected", nil)
@@ -607,7 +608,7 @@ func TestAuthMiddleware(t *testing.T) {
 
 func TestTokenGeneration(t *testing.T) {
 	user := &models.User{
-		ID:       1,
+		ID:       uuid.New(),
 		Username: "testuser",
 		Role:     "user",
 	}
@@ -619,7 +620,7 @@ func TestTokenGeneration(t *testing.T) {
 
 		claims, err := ValidateToken(token)
 		assert.NoError(t, err)
-		assert.Equal(t, float64(user.ID), (*claims)["user_id"])
+		assert.Equal(t, user.ID.String(), (*claims)["user_id"])
 		assert.Equal(t, user.Username, (*claims)["username"])
 		assert.Equal(t, user.Role, (*claims)["role"])
 	})
@@ -631,13 +632,13 @@ func TestTokenGeneration(t *testing.T) {
 
 		claims, err := ValidateRefreshToken(token)
 		assert.NoError(t, err)
-		assert.Equal(t, float64(user.ID), (*claims)["user_id"])
+		assert.Equal(t, user.ID.String(), (*claims)["user_id"])
 	})
 }
 
 func TestTokenValidation(t *testing.T) {
 	user := &models.User{
-		ID:       1,
+		ID:       uuid.New(),
 		Username: "testuser",
 		Role:     "user",
 	}
@@ -658,7 +659,7 @@ func TestTokenValidation(t *testing.T) {
 
 	t.Run("Validate expired token", func(t *testing.T) {
 		expiredToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"user_id":  user.ID,
+			"user_id":  user.ID.String(),
 			"username": user.Username,
 			"role":     user.Role,
 			"exp":      time.Now().Add(-time.Hour).Unix(),
@@ -739,11 +740,11 @@ func TestRateLimitMiddleware(t *testing.T) {
 		handler := RateLimitMiddleware(service.loginLimiter, nextHandler)
 
 		for i := 0; i < 6; i++ {
-			handler.ServeHTTP(rr, req)
+			handler.ServeHTTP(rr)
 		}
 
 		assert.Equal(t, http.StatusTooManyRequests, rr.Code)
-		assert.Containst, rr.Body.String(), "Too many requests")
+		assert.Contains(t, rr.Body.String(), "Too many requests")
 	})
 }
 
